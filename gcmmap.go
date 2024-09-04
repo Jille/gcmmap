@@ -10,6 +10,9 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	// gcmmap would break with a moving garbage collector, so import this to ensure we refuse to start if built with a Go version with a moving garbage collector.
+	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
 // NumActive is the number of mmaps that have not yet been garbage collected.
