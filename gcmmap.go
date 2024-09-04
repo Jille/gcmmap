@@ -1,4 +1,4 @@
-// Package gcmmap provides mmap(2) that automatically munmaps when the garbage collector allows it.
+// Package gcmmap provides mmap(2) that can be garbage collected by Go's garbage collector. There is no explicit munmap.
 //
 // It uses unsafe and evil trickery. USE AT YOUR OWN RISK.
 package gcmmap
@@ -15,7 +15,7 @@ import (
 // NumActive is the number of mmaps that have not yet been garbage collected.
 var NumActive atomic.Int32
 
-// Mmap calls mmap(2) and relies on the garbage collector to munmap when dereferenced.
+// Mmap calls mmap(2) and uses the garbage collector to unmap when no more references exist.
 func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 	// Do a regular allocation, which we can set a finalizer on.
 	// Make it slightly larger than the requested length, to allow us to align to a page boundary, and to make sure we don't mmap over another allocation on the same page.
@@ -38,7 +38,7 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 			panic(fmt.Errorf("Restoring normal memory failed when gcmmap got dereferenced: %w", err))
 		}
 		if addr != pageStart {
-			panic("mmap(2) with MAP_FIXED chose a different address while restoring dereferenced gcmmap")
+			panic("mmap(2) with MAP_FIXED chose a different address while garbage collecting")
 		}
 		NumActive.Add(-1)
 	})
