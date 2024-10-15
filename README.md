@@ -7,5 +7,3 @@ Package gcmmap provides mmap(2) that can be garbage collected by Go's garbage co
 It works by allocating a []byte from the Go allocator, which we can set a finalizer on, and then using mmap with MAP_FIXED to overwrite it with your requested mmap. When the finalizer runs, we undo that and put a normal anonymous read/write mapping back.
 
 USE AT YOUR OWN RISK.
-
-I still haven't decided whether I dare to use it myself.
