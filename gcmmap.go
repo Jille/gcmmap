@@ -19,6 +19,8 @@ import (
 var NumActive atomic.Int32
 
 // Mmap calls mmap(2) and uses the garbage collector to unmap when no more references exist.
+//
+//go:nocheckptr
 func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 	// Do a regular allocation, which we can set a finalizer on.
 	// Make it slightly larger than the requested length, to allow us to align to a page boundary, and to make sure we don't mmap over another allocation on the same page.
