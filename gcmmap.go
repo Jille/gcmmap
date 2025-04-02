@@ -16,8 +16,13 @@ import (
 	_ "go4.org/unsafe/assume-no-moving-gc"
 )
 
-// NumActive is the number of mmaps that have not yet been garbage collected.
-var NumActive atomic.Int32
+var (
+	// NumActive is the number of mmaps that have not yet been garbage collected.
+	NumActive atomic.Int32
+
+	// BytesActive is the number of bytes across all mmaps that have not yet been garbage collected.
+	BytesActive atomic.Int64
+)
 
 var pagesize = os.Getpagesize()
 
@@ -38,6 +43,7 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 		panic("mmap(2) with MAP_FIXED chose a different address")
 	}
 	NumActive.Add(1)
+	BytesActive.Add(int64((len + pagesize - 1) / pagesize))
 
 	runtime.SetFinalizer((*byte)(container), func(container *byte) {
 		pageStart := alignPointer(unsafe.Pointer(container))
@@ -49,6 +55,7 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 			panic("mmap(2) with MAP_FIXED chose a different address while garbage collecting")
 		}
 		NumActive.Add(-1)
+		BytesActive.Add(-int64((len + pagesize - 1) / pagesize))
 	})
 
 	return unsafe.Slice((*byte)(pageStart), len), nil
