@@ -5,6 +5,7 @@ package gcmmap
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"unsafe"
@@ -18,13 +19,15 @@ import (
 // NumActive is the number of mmaps that have not yet been garbage collected.
 var NumActive atomic.Int32
 
+var pagesize = os.Getpagesize()
+
 // Mmap calls mmap(2) and uses the garbage collector to unmap when no more references exist.
 //
 //go:nocheckptr
 func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 	// Do a regular allocation, which we can set a finalizer on.
 	// Make it slightly larger than the requested length, to allow us to align to a page boundary, and to make sure we don't mmap over another allocation on the same page.
-	container := allocateDirtyBytes((len + 4096 + 4095) & ^4095)
+	container := allocateDirtyBytes((len + pagesize + pagesize - 1) / pagesize * pagesize)
 	pageStart := alignPointer(container)
 
 	addr, err := unix.MmapPtr(fd, offset, pageStart, uintptr(len), prot, flags|unix.MAP_FIXED)
@@ -52,11 +55,11 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 }
 
 func alignPointer(p unsafe.Pointer) unsafe.Pointer {
-	o := uintptr(p) % 4096
+	o := uintptr(p) % uintptr(pagesize)
 	if o == 0 {
 		return p
 	}
-	return unsafe.Add(p, 4096-o)
+	return unsafe.Add(p, pagesize-int(o))
 }
 
 // allocateDirtyBytes allocates bytes without zeroing them.
