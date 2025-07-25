@@ -70,6 +70,9 @@ func allocateDirtyBytes(n int) unsafe.Pointer {
 func mallocgc(size uintptr, typ unsafe.Pointer, needzero bool) unsafe.Pointer
 
 func release(container *byte, length int) {
+	// Make sure the memory is not reused until we're done with it.
+	defer runtime.KeepAlive(container)
+
 	pageStart := alignPointer(unsafe.Pointer(container))
 	addr, err := unix.MmapPtr(-1, 0, pageStart, uintptr(length), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_ANONYMOUS|unix.MAP_PRIVATE|unix.MAP_FIXED)
 	if err != nil {
