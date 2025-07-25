@@ -46,16 +46,8 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 	BytesActive.Add(int64((len + pagesize - 1) / pagesize * pagesize))
 
 	runtime.SetFinalizer((*byte)(container), func(container *byte) {
-		pageStart := alignPointer(unsafe.Pointer(container))
-		addr, err := unix.MmapPtr(-1, 0, pageStart, uintptr(len), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_ANONYMOUS|unix.MAP_PRIVATE|unix.MAP_FIXED)
-		if err != nil {
-			panic(fmt.Errorf("Restoring normal memory failed when gcmmap got dereferenced: %w", err))
-		}
-		if addr != pageStart {
-			panic("mmap(2) with MAP_FIXED chose a different address while garbage collecting")
-		}
-		NumActive.Add(-1)
-		BytesActive.Add(-int64((len + pagesize - 1) / pagesize * pagesize))
+		// Unmapping can be slow, don't hold up the finalizer thread.
+		go release(container, len)
 	})
 
 	return unsafe.Slice((*byte)(pageStart), len), nil
@@ -76,3 +68,16 @@ func allocateDirtyBytes(n int) unsafe.Pointer {
 
 //go:linkname mallocgc runtime.mallocgc
 func mallocgc(size uintptr, typ unsafe.Pointer, needzero bool) unsafe.Pointer
+
+func release(container *byte, length int) {
+	pageStart := alignPointer(unsafe.Pointer(container))
+	addr, err := unix.MmapPtr(-1, 0, pageStart, uintptr(length), unix.PROT_READ|unix.PROT_WRITE, unix.MAP_ANONYMOUS|unix.MAP_PRIVATE|unix.MAP_FIXED)
+	if err != nil {
+		panic(fmt.Errorf("Restoring normal memory failed when gcmmap got dereferenced: %w", err))
+	}
+	if addr != pageStart {
+		panic("mmap(2) with MAP_FIXED chose a different address while garbage collecting")
+	}
+	NumActive.Add(-1)
+	BytesActive.Add(-int64((length + pagesize - 1) / pagesize * pagesize))
+}
