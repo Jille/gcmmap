@@ -22,6 +22,8 @@ var (
 
 	// BytesActive is the number of bytes across all mmaps that have not yet been garbage collected.
 	BytesActive atomic.Int64
+
+	seenUnalignedAlloc atomic.Bool
 )
 
 var pagesize = os.Getpagesize()
@@ -30,9 +32,22 @@ var pagesize = os.Getpagesize()
 //
 //go:nocheckptr
 func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
-	// Do a regular allocation, which we can set a finalizer on.
-	// Make it slightly larger than the requested length, to allow us to align to a page boundary, and to make sure we don't mmap over another allocation on the same page.
-	container := allocateDirtyBytes((len + pagesize + pagesize - 1) / pagesize * pagesize)
+	// We use mallocgc to get memory tracked by the Go GC and mmap(2) over that.
+
+	var container unsafe.Pointer
+	if !seenUnalignedAlloc.Load() {
+		// Allocate len rounded up to a page size to make sure we don't mmap over another allocation on the same page.
+		container = allocateDirtyBytes((len + pagesize - 1) / pagesize * pagesize)
+		if uintptr(container)%uintptr(pagesize) != 0 {
+			// We got an allocation that didn't start on a page boundary. AFAIK that can't happen with current versions of Go.
+			seenUnalignedAlloc.Store(true)
+			container = nil
+		}
+	}
+	if container == nil {
+		// Allocate one page more than the requested length (rounded up to the page size), to allow us to align to a page boundary.
+		container = allocateDirtyBytes((len + pagesize + pagesize - 1) / pagesize * pagesize)
+	}
 	pageStart := alignPointer(container)
 
 	addr, err := unix.MmapPtr(fd, offset, pageStart, uintptr(len), prot, flags|unix.MAP_FIXED)
