@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"unsafe"
 
@@ -24,6 +25,9 @@ var (
 	BytesActive atomic.Int64
 
 	seenUnalignedAlloc atomic.Bool
+
+	callbackMtx sync.Mutex
+	callbacks   []func(delta int)
 )
 
 var pagesize = os.Getpagesize()
@@ -59,6 +63,7 @@ func Mmap(fd int, offset int64, len, prot, flags int) ([]byte, error) {
 	}
 	NumActive.Add(1)
 	BytesActive.Add(int64((len + pagesize - 1) / pagesize * pagesize))
+	runCallbacks(len)
 
 	runtime.SetFinalizer((*byte)(container), func(container *byte) {
 		// Unmapping can be slow, don't hold up the finalizer thread.
@@ -98,4 +103,22 @@ func release(container *byte, length int) {
 	}
 	NumActive.Add(-1)
 	BytesActive.Add(-int64((length + pagesize - 1) / pagesize * pagesize))
+	runCallbacks(-length)
+}
+
+// AddCallback registers a callback that is notified whenever mappings are added or dropped.
+// Every call to Mmap(..., length, ...) triggers exactly one call to f(length) and later a call to f(-length), once the data is no longer referenced.
+// f() will never be called concurrently.
+func AddCallback(f func(delta int)) {
+	callbackMtx.Lock()
+	defer callbackMtx.Unlock()
+	callbacks = append(callbacks, f)
+}
+
+func runCallbacks(delta int) {
+	callbackMtx.Lock()
+	defer callbackMtx.Unlock()
+	for _, f := range callbacks {
+		f(delta)
+	}
 }
